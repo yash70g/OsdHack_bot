@@ -1,5 +1,13 @@
-const { Client, GatewayIntentBits, PermissionsBitField, ChannelType, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionsBitField, ChannelType, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const clientId = process.env.CLIENT_ID;
+const guildId = process.env.GUILD_ID;
+const token = process.env.TOKEN;
+const mongoUri = process.env.MONGO_URI;
 
 // i'll dm the env file 
 
@@ -15,6 +23,7 @@ const teamSchema = new mongoose.Schema({
     devpost: [String],
     github: String
 });
+
 const Team = mongoose.model('Team', teamSchema);
 
 const client = new Client({
@@ -221,67 +230,108 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.commandName === 'updateteam') {
-        await interaction.deferReply({ ephemeral: false });
+        await interaction.deferReply({ ephemeral: true });
         const teamName = interaction.options.getString('team_name');
         const membersRaw = interaction.options.getString('members');
         const devpostRaw = interaction.options.getString('devpost');
         const githubRaw = interaction.options.getString('github');
         const team = await Team.findOne({ guildId: interaction.guild.id, teamName: teamName.toLowerCase() });
-        if (!team) {
-            const embed = new EmbedBuilder()
-                .setTitle("Team Not Found")
-                .setDescription(`No team found with the name "${teamName}".`)
-                .setColor(0xff0000);
-            return interaction.editReply({ embeds: [embed] });
-        }
-        let updated = false;
-        if (membersRaw) {
-            const memberMentions = membersRaw.match(/<@!?(\d+)>/g) || [];
-            team.members = memberMentions;
-            const role = await interaction.guild.roles.fetch(team.roleId);
-            const allMembers = await interaction.guild.members.fetch();
-            for (const member of allMembers.values()) {
-                if (member.roles.cache.has(role.id)) {
-                    await member.roles.remove(role).catch(() => {});
+
+        const confirmButton = new ButtonBuilder()
+        .setCustomId("confirm_button")
+        .setLabel("Yes, update details")
+        .setStyle(ButtonStyle.Danger);
+
+        const cancelButton = new ButtonBuilder()
+        .setCustomId("cancel_button")
+        .setLabel("Cancel")
+        .setStyle(ButtonStyle.Secondary);
+
+        const row = new ActionRowBuilder()
+        .addComponents(confirmButton, cancelButton);
+
+        const response = await interaction.editReply({
+            content: 'Are you absolutely sure you want to update team data? This action will delete all previous data!',
+            components: [row],
+            ephemeral: true,
+        });
+
+        const collectorFilter = i => i.user.id === interaction.user.id;
+
+        try {
+            const confirmation = await response.awaitMessageComponent({ filter: collectorFilter, time: 60_000 });
+
+            if (confirmation.customId === 'confirm_button') {
+                confirmButton.setDisabled(true);
+                cancelButton.setDisabled(true);
+                await confirmation.update({ components: [row] });
+                if (!team) {
+                    const embed = new EmbedBuilder()
+                        .setTitle("Team Not Found")
+                        .setDescription(`No team found with the name "${teamName}".`)
+                        .setColor(0xff0000);
+                    return interaction.editReply({ embeds: [embed] });
                 }
-            }
-            for (const mention of memberMentions) {
-                const memberId = mention.replace(/[<@!>]/g, '');
-                const member = await interaction.guild.members.fetch(memberId).catch(() => null);
-                if (member) {
-                    await member.roles.add(role).catch(() => {});
+                let updated = false;
+                if (membersRaw) {
+                    const memberMentions = membersRaw.match(/<@!?(\d+)>/g) || [];
+                    team.members = memberMentions;
+                    const role = await interaction.guild.roles.fetch(team.roleId);
+                    const allMembers = await interaction.guild.members.fetch();
+                    for (const member of allMembers.values()) {
+                        if (member.roles.cache.has(role.id)) {
+                            await member.roles.remove(role).catch(() => {});
+                        }
+                    }
+                    for (const mention of memberMentions) {
+                        const memberId = mention.replace(/[<@!>]/g, '');
+                        const member = await interaction.guild.members.fetch(memberId).catch(() => null);
+                        if (member) {
+                            await member.roles.add(role).catch(() => {});
+                        }
+                    }
+                    updated = true;
                 }
+                if (devpostRaw) {
+                    const devpostUsernames = devpostRaw.split(',').map(u => u.trim()).filter(Boolean);
+                    team.devpost = devpostUsernames;
+                    updated = true;
+                }
+                if (githubRaw) {
+                    team.github = githubRaw;
+                    updated = true;
+                }
+                if (!updated) {
+                    const embed = new EmbedBuilder()
+                        .setTitle("Nothing to Update")
+                        .setDescription("Please provide members and/or devpost usernames and/or github repo to update.")
+                        .setColor(0xffcc00);
+                    return interaction.editReply({ embeds: [embed] });
+                }
+                await team.save();
+                const embed = new EmbedBuilder()
+                    .setTitle(`Team "${teamName}" Updated`)
+                    .addFields(
+                        { name: 'Role', value: `<@&${team.roleId}>`, inline: true },
+                        { name: 'Text Channel', value: `<#${team.textChannelId}>`, inline: true },
+                        { name: 'Members', value: team.members.join(' '), inline: false },
+                        { name: 'Devpost Usernames', value: team.devpost.join(', '), inline: false }
+                    )
+                    .setColor(0x00ccff);
+                if (team.github) embed.addFields({ name: 'GitHub Repo', value: team.github, inline: false });
+                await interaction.editReply({ embeds: [embed] });
+            } else if (confirmation.customId === 'cancel_button'){
+                confirmButton.setDisabled(true);
+                cancelButton.setDisabled(true);
+                await confirmation.update({ content: 'Deletion cancelled.', components: [row] });
             }
-            updated = true;
+        } catch (e) {
+            confirmButton.setDisabled(true);
+            cancelButton.setDisabled(true);
+            await interaction.editReply({ content: 'Confirmation not received in time, action cancelled.', components: [row] });
         }
-        if (devpostRaw) {
-            const devpostUsernames = devpostRaw.split(',').map(u => u.trim()).filter(Boolean);
-            team.devpost = devpostUsernames;
-            updated = true;
-        }
-        if (githubRaw) {
-            team.github = githubRaw;
-            updated = true;
-        }
-        if (!updated) {
-            const embed = new EmbedBuilder()
-                .setTitle("Nothing to Update")
-                .setDescription("Please provide members and/or devpost usernames and/or github repo to update.")
-                .setColor(0xffcc00);
-            return interaction.editReply({ embeds: [embed] });
-        }
-        await team.save();
-        const embed = new EmbedBuilder()
-            .setTitle(`Team "${teamName}" Updated`)
-            .addFields(
-                { name: 'Role', value: `<@&${team.roleId}>`, inline: true },
-                { name: 'Text Channel', value: `<#${team.textChannelId}>`, inline: true },
-                { name: 'Members', value: team.members.join(' '), inline: false },
-                { name: 'Devpost Usernames', value: team.devpost.join(', '), inline: false }
-            )
-            .setColor(0x00ccff);
-        if (team.github) embed.addFields({ name: 'GitHub Repo', value: team.github, inline: false });
-        await interaction.editReply({ embeds: [embed] });
+
+        
     }
 
     if (interaction.commandName === 'showallteams') {
