@@ -1,15 +1,10 @@
 const { Client, GatewayIntentBits, PermissionsBitField, ChannelType, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-
-dotenv.config();
 
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 const token = process.env.TOKEN;
 const mongoUri = process.env.MONGO_URI;
-
-// i'll dm the env file 
 
 
 mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
@@ -160,31 +155,13 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        const textChannel = await interaction.guild.channels.create({
-            name: teamName.toLowerCase().replace(/\s+/g, '-'),
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                {
-                    id: interaction.guild.id,
-                    deny: [PermissionsBitField.Flags.ViewChannel]
-                },
-                {
-                    id: role.id,
-                    allow: [PermissionsBitField.Flags.ViewChannel]
-                }
-            ]
-        });
-
-        
-
-        // Save to MongoDB
         await Team.findOneAndUpdate(
             { guildId: interaction.guild.id, teamName: teamName.toLowerCase() },
             {
                 guildId: interaction.guild.id,
                 teamName: teamName.toLowerCase(),
                 roleId: role.id,
-                textChannelId: textChannel.id,
+                textChannelId: null,
                 members: memberMentions,
                 devpost: devpostUsernames,
                 github: githubRepo
@@ -196,7 +173,6 @@ client.on('interactionCreate', async interaction => {
             .setTitle(`Team "${teamName}" Created`)
             .addFields(
                 { name: 'Role', value: `<@&${role.id}>`, inline: true },
-                { name: 'Text Channel', value: `<#${textChannel.id}>`, inline: true },
                 { name: 'Devpost Usernames', value: devpostUsernames.join(', '), inline: false }
             )
             .setColor(0x00ff99);
@@ -207,7 +183,8 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'showteam') {
         await interaction.deferReply({ ephemeral: false });
-        const teamName = interaction.options.getString('team_name');
+        let teamName = interaction.options.getString('team_name');
+        if (teamName.startsWith('@')) teamName = teamName.slice(1).trim();
         const team = await Team.findOne({ guildId: interaction.guild.id, teamName: teamName.toLowerCase() });
         if (!team) {
             const embed = new EmbedBuilder()
@@ -220,7 +197,7 @@ client.on('interactionCreate', async interaction => {
             .setTitle(`Team "${teamName}" Details`)
             .addFields(
                 { name: 'Role', value: `<@&${team.roleId}>`, inline: true },
-                { name: 'Text Channel', value: `<#${team.textChannelId}>`, inline: true },
+                { name: 'Text Channel', value: team.textChannelId ? `<#${team.textChannelId}>` : 'N/A', inline: true },
                 { name: 'Members', value: team.members.join(' '), inline: false },
                 { name: 'Devpost Usernames', value: team.devpost.join(', '), inline: false }
             )
@@ -231,7 +208,8 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'updateteam') {
         await interaction.deferReply({ ephemeral: true });
-        const teamName = interaction.options.getString('team_name');
+        let teamName = interaction.options.getString('team_name');
+        if (teamName.startsWith('@')) teamName = teamName.slice(1).trim();
         const membersRaw = interaction.options.getString('members');
         const devpostRaw = interaction.options.getString('devpost');
         const githubRaw = interaction.options.getString('github');
@@ -313,7 +291,7 @@ client.on('interactionCreate', async interaction => {
                     .setTitle(`Team "${teamName}" Updated`)
                     .addFields(
                         { name: 'Role', value: `<@&${team.roleId}>`, inline: true },
-                        { name: 'Text Channel', value: `<#${team.textChannelId}>`, inline: true },
+                        { name: 'Text Channel', value: team.textChannelId ? `<#${team.textChannelId}>` : 'N/A', inline: true },
                         { name: 'Members', value: team.members.join(' '), inline: false },
                         { name: 'Devpost Usernames', value: team.devpost.join(', '), inline: false }
                     )
@@ -330,8 +308,6 @@ client.on('interactionCreate', async interaction => {
             cancelButton.setDisabled(true);
             await interaction.editReply({ content: 'Confirmation not received in time, action cancelled.', components: [row] });
         }
-
-        
     }
 
     if (interaction.commandName === 'showallteams') {
@@ -349,7 +325,7 @@ client.on('interactionCreate', async interaction => {
             .setColor(0x00bfff);
 
         for (const team of teams) {
-            let value = `Role: <@&${team.roleId}>\nText: <#${team.textChannelId}>\nMembers: ${team.members.join(' ')}\nDevpost: ${team.devpost.join(', ')}`;
+            let value = `Role: <@&${team.roleId}>\nText: ${team.textChannelId ? `<#${team.textChannelId}>` : 'N/A'}\nMembers: ${team.members.join(' ')}\nDevpost: ${team.devpost.join(', ')}`;
             if (team.github) value += `\nGitHub: ${team.github}`;
             embed.addFields({ name: team.teamName, value: value.length > 1024 ? value.slice(0, 1021) + '...' : value, inline: false });
         }
