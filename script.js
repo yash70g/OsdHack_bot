@@ -1,11 +1,8 @@
 const { Client, GatewayIntentBits, PermissionsBitField, ChannelType, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const mongoose = require('mongoose');
 
-const clientId = process.env.CLIENT_ID;
-const guildId = process.env.GUILD_ID;
-const token = process.env.TOKEN;
-const mongoUri = process.env.MONGO_URI;
 
+//paste env
 
 mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
 
@@ -106,6 +103,17 @@ client.on('ready', () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
+    // Permission check: only users above the bot's highest role can use commands
+    const botMember = await interaction.guild.members.fetchMe();
+    const authorMember = await interaction.guild.members.fetch(interaction.user.id);
+    if (authorMember.roles.highest.position <= botMember.roles.highest.position) {
+        const embed = new EmbedBuilder()
+            .setTitle("Permission Denied")
+            .setDescription("You don't have permission to use this command.")
+            .setColor(0xff0000);
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
     if (interaction.commandName === 'create_team') {
         await interaction.deferReply({ ephemeral: false });
 
@@ -113,16 +121,6 @@ client.on('interactionCreate', async interaction => {
         const membersRaw = interaction.options.getString('members');
         const devpostRaw = interaction.options.getString('devpost');
         const githubRepo = interaction.options.getString('github');
-
-        const botMember = await interaction.guild.members.fetchMe();
-        const authorMember = await interaction.guild.members.fetch(interaction.user.id);
-        if (authorMember.roles.highest.position <= botMember.roles.highest.position) {
-            const embed = new EmbedBuilder()
-                .setTitle("Permission Denied")
-                .setDescription("You don't have permission to use this command.")
-                .setColor(0xff0000);
-            return interaction.editReply({ embeds: [embed] });
-        }
 
         const memberMentions = membersRaw.match(/<@!?(\d+)>/g) || [];
         if (memberMentions.length === 0) {
