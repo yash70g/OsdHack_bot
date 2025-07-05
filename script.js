@@ -1,8 +1,7 @@
 const { Client, GatewayIntentBits, PermissionsBitField, ChannelType, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const mongoose = require('mongoose');
 
-
-//paste env
+// add envs
 
 mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
 
@@ -213,18 +212,26 @@ client.on('interactionCreate', async interaction => {
         const githubRaw = interaction.options.getString('github');
         const team = await Team.findOne({ guildId: interaction.guild.id, teamName: teamName.toLowerCase() });
 
+        if (!team || !team.members.includes(`<@${interaction.user.id}>`) && !team.members.includes(`<@!${interaction.user.id}>`)) {
+            const embed = new EmbedBuilder()
+                .setTitle("Permission Denied")
+                .setDescription("You can only update your own team.")
+                .setColor(0xff0000);
+            return interaction.editReply({ embeds: [embed] });
+        }
+
         const confirmButton = new ButtonBuilder()
-        .setCustomId("confirm_button")
-        .setLabel("Yes, update details")
-        .setStyle(ButtonStyle.Danger);
+            .setCustomId("confirm_button")
+            .setLabel("Yes, update details")
+            .setStyle(ButtonStyle.Danger);
 
         const cancelButton = new ButtonBuilder()
-        .setCustomId("cancel_button")
-        .setLabel("Cancel")
-        .setStyle(ButtonStyle.Secondary);
+            .setCustomId("cancel_button")
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Secondary);
 
         const row = new ActionRowBuilder()
-        .addComponents(confirmButton, cancelButton);
+            .addComponents(confirmButton, cancelButton);
 
         const response = await interaction.editReply({
             content: 'Are you absolutely sure you want to update team data? This action will delete all previous data!',
